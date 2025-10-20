@@ -1,12 +1,12 @@
 package com.example.helper_bot_oly.service;
 
-
 import com.example.helper_bot_oly.entity.HelperTask;
 import com.example.helper_bot_oly.repository.HelperTaskRepository;
 import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.UpdatesListener;
 import com.pengrad.telegrambot.model.Update;
 import com.pengrad.telegrambot.request.SendMessage;
+import com.pengrad.telegrambot.request.SendPhoto;
 import com.pengrad.telegrambot.response.SendResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +23,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.io.File;
 
 @Service
 public class TelegramBotUpdatesListener implements UpdatesListener {
@@ -86,7 +87,7 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
     private int processNormalMode(List<Update> updates) {
         updates.forEach(update -> {
             logger.info("Processing update: {}", update);
-            if (update.message() != null && update.message().text() != null) {
+            if (update.message() != null && update.message().text() != null && update.message().chat() != null) {
                 String messageText = update.message().text();
                 Long chatId = update.message().chat().id();
 
@@ -98,6 +99,9 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
                         messageText.toLowerCase().contains("шутка") ||
                         messageText.toLowerCase().contains("мем")) {
                     sendJoke(chatId);
+                } else if (messageText.toLowerCase().contains("кто балуется") ||
+                        messageText.toLowerCase().contains("кто балуеться")) {
+                    sendWhoIsMisbehaving(chatId);
                 } else {
                     processNotificationMessage(chatId, messageText);
                 }
@@ -135,6 +139,17 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
     private void sendJoke(Long chatId) {
         String joke = "Купил мужик шляпу - а она ему как раз!";
         executeMessage(new SendMessage(chatId, joke));
+    }
+
+    private void sendWhoIsMisbehaving(Long chatId) {
+        try {
+            File imageFile = new File("src/main/resources/static/who_misbehaving.jpg");
+            SendPhoto photoRequest = new SendPhoto(chatId, imageFile);
+            telegramBot.execute(photoRequest);
+        } catch (Exception e) {
+            logger.error("Error sending photo", e);
+            sendMessage(chatId, "Не могу найти картинку 😔");
+        }
     }
 
     private void processNotificationMessage(Long chatId, String messageText) {
@@ -207,9 +222,3 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
         }
     }
 }
-
-
-
-
-
-
