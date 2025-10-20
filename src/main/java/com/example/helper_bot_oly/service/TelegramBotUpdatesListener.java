@@ -100,7 +100,7 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
                         messageText.toLowerCase().contains("мем")) {
                     sendJoke(chatId);
                 } else if (messageText.toLowerCase().contains("кто балуется") ||
-                        messageText.toLowerCase().contains("кто балуеться")) {
+                        messageText.toLowerCase().contains("кто вредничает")) {
                     sendWhoIsMisbehaving(chatId);
                 } else {
                     processNotificationMessage(chatId, messageText);
@@ -148,7 +148,7 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
             telegramBot.execute(photoRequest);
         } catch (Exception e) {
             logger.error("Error sending photo", e);
-            sendMessage(chatId, "Не могу найти картинку 😔");
+            sendMessage(chatId, "Cant search a picture 😔");
         }
     }
 
