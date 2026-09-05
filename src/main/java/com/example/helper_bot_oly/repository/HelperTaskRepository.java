@@ -8,10 +8,18 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface HelperTaskRepository extends JpaRepository<HelperTask, Long> {
 
     @Query("SELECT h FROM HelperTask h WHERE h.notificationDateTime = :dateTime")
     List<HelperTask> findAllByNotificationDateTime(@Param("dateTime") LocalDateTime dateTime);
+
+    List<HelperTask> findAllByChatIdAndNotificationDateTimeAfterOrderByNotificationDateTimeAsc(
+            Long chatId,
+            LocalDateTime notificationDateTime
+    );
+
+    Optional<HelperTask> findByIdAndChatId(Long id, Long chatId);
 }
