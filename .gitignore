@@ -1,24 +1,27 @@
 HELP.md
 *.iml
-.idea
+.idea/
 target/
-.mvn/wrapper/maven-wrapper.jar
-!**/src/main/**/target/
-!**/src/test/**/target/
+build/
+.DS_Store
+.env
+.env.*
+!.env.example
 
-### STS ###
-.apt_generated
+### Maven ###
+.mvn/wrapper/maven-wrapper.jar
+
+### STS / Eclipse ###
+.apt_generated/
 .classpath
 .factorypath
 .project
-.settings
+.settings/
 .springBeans
-.sts4-cache
+.sts4-cache/
 
 ### IntelliJ IDEA ###
-.idea
 *.iws
-*.iml
 *.ipr
 
 ### NetBeans ###
@@ -27,9 +30,10 @@ target/
 /dist/
 /nbdist/
 /.nb-gradle/
-build/
-!**/src/main/**/build/
-!**/src/test/**/build/
 
 ### VS Code ###
 .vscode/
+
+### Local runtime ###
+*.log
+*.pid
