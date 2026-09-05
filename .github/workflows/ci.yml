@@ -3,6 +3,7 @@ name: Oly CI
 on:
   push:
     branches:
+      - main
       - oly-ai-agent
   pull_request:
     branches:
