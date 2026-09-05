@@ -8,183 +8,201 @@ import com.pengrad.telegrambot.model.Update;
 import com.pengrad.telegrambot.request.SendMessage;
 import com.pengrad.telegrambot.request.SendPhoto;
 import com.pengrad.telegrambot.response.SendResponse;
+import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import jakarta.annotation.PostConstruct;
+import java.io.File;
 import java.time.LocalDateTime;
-import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.io.File;
 
 @Service
 public class TelegramBotUpdatesListener implements UpdatesListener {
 
-    private final Logger logger = LoggerFactory.getLogger(TelegramBotUpdatesListener.class);
-    private final Pattern pattern = Pattern.compile("(\\d{2}\\.\\d{2}\\.\\d{4}\\s\\d{2}:\\d{2})(\\s+)(.+)");
-    private final DateTimeFormatter dateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
-    private final ConcurrentHashMap<Long, Boolean> nightModeNotifiedChats = new ConcurrentHashMap<>();
+    private static final Logger logger = LoggerFactory.getLogger(TelegramBotUpdatesListener.class);
 
-    private final LocalTime NIGHT_MODE_START = LocalTime.of(22, 0);
-    private final LocalTime NIGHT_MODE_END = LocalTime.of(8, 0);
+    private static final Pattern REMINDER_PATTERN = Pattern.compile(
+            "(\\d{2}\\.\\d{2}\\.\\d{4}\\s\\d{2}:\\d{2})(\\s+)(.+)"
+    );
 
-    @Autowired
-    private TelegramBot telegramBot;
+    private static final DateTimeFormatter REMINDER_DATE_FORMAT =
+            DateTimeFormatter.ofPattern("dd.MM.yyyy HH:mm");
 
-    @Autowired
-    private HelperTaskRepository helperTaskRepository;
+    private static final int TELEGRAM_SAFE_MESSAGE_LENGTH = 3900;
+
+    private final TelegramBot telegramBot;
+    private final HelperTaskRepository helperTaskRepository;
+    private final OlyAiService olyAiService;
+
+    public TelegramBotUpdatesListener(
+            TelegramBot telegramBot,
+            HelperTaskRepository helperTaskRepository,
+            OlyAiService olyAiService
+    ) {
+        this.telegramBot = telegramBot;
+        this.helperTaskRepository = helperTaskRepository;
+        this.olyAiService = olyAiService;
+    }
 
     @PostConstruct
     public void init() {
         telegramBot.setUpdatesListener(this);
+        logger.info("helper_bot_oly listener started");
     }
 
     @Override
     public int process(List<Update> updates) {
-        try {
-            if (isNightMode()) {
-                return processNightMode(updates);
-            } else {
-                nightModeNotifiedChats.clear();
-                return processNormalMode(updates);
+        for (Update update : updates) {
+            try {
+                processUpdate(update);
+            } catch (Exception exception) {
+                logger.error("Error processing Telegram update", exception);
             }
-        } catch (Exception e) {
-            logger.error("Error processing updates", e);
         }
+
         return UpdatesListener.CONFIRMED_UPDATES_ALL;
     }
 
-    private boolean isNightMode() {
-        LocalTime now = LocalTime.now();
-        return now.isAfter(NIGHT_MODE_START) || now.isBefore(NIGHT_MODE_END);
-    }
+    private void processUpdate(Update update) {
+        if (update == null || update.message() == null || update.message().chat() == null) {
+            return;
+        }
 
-    private int processNightMode(List<Update> updates) {
-        updates.forEach(update -> {
-            if (update.message() != null && update.message().text() != null && update.message().chat() != null) {
-                Long chatId = update.message().chat().id();
-                String messageText = update.message().text();
+        String text = update.message().text();
+        if (text == null || text.isBlank()) {
+            return;
+        }
 
-                if (!nightModeNotifiedChats.containsKey(chatId)) {
-                    sendNightModeMessage(chatId);
-                    nightModeNotifiedChats.put(chatId, true);
-                }
+        Long chatId = update.message().chat().id();
+        String cleanText = text.trim();
+        String normalized = cleanText.toLowerCase(Locale.ROOT);
+        String command = normalized.split("\\s+", 2)[0];
 
-                logger.info("Night mode: Message from chat {} ignored: {}", chatId, messageText);
-            }
-        });
-        return UpdatesListener.CONFIRMED_UPDATES_ALL;
-    }
+        logger.info("Telegram message received from chat {}", chatId);
 
-    private int processNormalMode(List<Update> updates) {
-        updates.forEach(update -> {
-            logger.info("Processing update: {}", update);
-            if (update.message() != null && update.message().text() != null && update.message().chat() != null) {
-                String messageText = update.message().text();
-                Long chatId = update.message().chat().id();
+        if (command.startsWith("/start")) {
+            sendWelcomeMessage(chatId);
+            return;
+        }
 
-                if ("/start".equals(messageText)) {
-                    sendWelcomeMessage(chatId);
-                } else if ("/joke".equals(messageText) ||
-                        messageText.toLowerCase().contains("оли,пошути") ||
-                        messageText.toLowerCase().contains("оли,развесели") ||
-                        messageText.toLowerCase().contains("шутка") ||
-                        messageText.toLowerCase().contains("мем")) {
-                    sendJoke(chatId);
-                } else if (messageText.toLowerCase().contains("кто балуется") ||
-                        messageText.toLowerCase().contains("кто вредничает")) {
-                    sendWhoIsMisbehaving(chatId);
-                } else {
-                    processNotificationMessage(chatId, messageText);
-                }
-            }
-        });
-        return UpdatesListener.CONFIRMED_UPDATES_ALL;
-    }
+        if (command.startsWith("/help")) {
+            sendHelp(chatId);
+            return;
+        }
 
-    private void sendNightModeMessage(Long chatId) {
-        String nightMessage = "Приветики, это бот Оли, а значит Маша спит и ответит позже🐱";
-        executeMessage(new SendMessage(chatId, nightMessage));
+        if (command.startsWith("/new") || command.startsWith("/reset")) {
+            olyAiService.resetConversation(chatId);
+            sendMessage(chatId, "Новый диалог начат. Контекст Оли очищен 🐱");
+            return;
+        }
+
+        if (command.startsWith("/joke")
+                || normalized.contains("оли,пошути")
+                || normalized.contains("оли, пошути")
+                || normalized.contains("оли,развесели")
+                || normalized.contains("оли, развесели")) {
+            sendJoke(chatId);
+            return;
+        }
+
+        if (normalized.contains("кто балуется") || normalized.contains("кто вредничает")) {
+            sendWhoIsMisbehaving(chatId);
+            return;
+        }
+
+        if (REMINDER_PATTERN.matcher(cleanText).matches()) {
+            processReminder(chatId, cleanText);
+            return;
+        }
+
+        String aiResponse = olyAiService.reply(chatId, cleanText);
+        sendLongMessage(chatId, aiResponse);
     }
 
     private void sendWelcomeMessage(Long chatId) {
-        String welcomeText = """
-                Hello, Marie 🐱
-                can I help you today ?
-                 we can be to plan a your day 
-                 or just small talk about your study
-                 He-he
+        sendMessage(chatId, """
+                Привет. Я Оли 🐱
+                Персональный AI-агент в Telegram: могу поговорить, помочь подумать,
+                разобрать задачу, текст, учёбу или план — и ещё умею ставить напоминания.
 
-                      Available commands:
-                      /start - Show this message
-                      /joke - Tell a funny story
+                Просто напиши мне обычным сообщением.
 
-                      To set a reminder, send:
-                      dd.MM.yyyy HH:mm Your reminder text
+                Напоминание:
+                dd.MM.yyyy HH:mm Текст
 
-                      Example:
-                      01.01.2025 20:00 Do homework
-                """;
-        executeMessage(new SendMessage(chatId, welcomeText));
+                Пример:
+                05.09.2026 19:30 Проверить backend
+
+                /new — начать новый AI-диалог
+                /joke — старая добрая глупость
+                /help — краткая справка
+                """);
+    }
+
+    private void sendHelp(Long chatId) {
+        sendMessage(chatId, """
+                Оли понимает обычный текст — специальных команд для AI не нужно.
+
+                /new или /reset — очистить контекст разговора
+                /joke — шутка
+                /help — эта справка
+
+                Напоминание создаётся сообщением формата:
+                dd.MM.yyyy HH:mm Текст напоминания
+                """);
     }
 
     private void sendJoke(Long chatId) {
-        String joke = "Купил мужик шляпу - а она ему как раз!";
-        executeMessage(new SendMessage(chatId, joke));
+        sendMessage(chatId, "Купил мужик шляпу — а она ему как раз!");
     }
 
     private void sendWhoIsMisbehaving(Long chatId) {
         try {
             File imageFile = new File("src/main/resources/static/who_misbehaving.jpg");
-            SendPhoto photoRequest = new SendPhoto(chatId, imageFile);
-            telegramBot.execute(photoRequest);
-        } catch (Exception e) {
-            logger.error("Error sending photo", e);
-            sendMessage(chatId, "Cant search a picture 😔");
+            telegramBot.execute(new SendPhoto(chatId, imageFile));
+        } catch (Exception exception) {
+            logger.error("Error sending misbehaving photo", exception);
+            sendMessage(chatId, "Не смогла найти картинку 😔");
         }
     }
 
-    private void processNotificationMessage(Long chatId, String messageText) {
-        Matcher matcher = pattern.matcher(messageText);
+    private void processReminder(Long chatId, String messageText) {
+        Matcher matcher = REMINDER_PATTERN.matcher(messageText);
 
-        if (matcher.matches()) {
-            try {
-                String dateTimeString = matcher.group(1);
-                String notificationText = matcher.group(3);
-                LocalDateTime notificationDateTime = LocalDateTime.parse(dateTimeString, dateTimeFormatter);
+        if (!matcher.matches()) {
+            return;
+        }
 
-                if (notificationDateTime.isBefore(LocalDateTime.now())) {
-                    sendMessage(chatId, "Unable to set a reminder for a past date");
-                    return;
-                }
+        try {
+            String dateTimeString = matcher.group(1);
+            String reminderText = matcher.group(3).trim();
+            LocalDateTime reminderDateTime = LocalDateTime.parse(
+                    dateTimeString,
+                    REMINDER_DATE_FORMAT
+            );
 
-                HelperTask task = new HelperTask(chatId, notificationText, notificationDateTime);
-                helperTaskRepository.save(task);
-
-                String response = String.format("The reminder will work %s:\n%s", dateTimeString, notificationText);
-                sendMessage(chatId, response);
-
-            } catch (Exception e) {
-                logger.error("Error parsing date from message: {}", messageText, e);
-                sendMessage(chatId, "Check the input format");
+            if (reminderDateTime.isBefore(LocalDateTime.now())) {
+                sendMessage(chatId, "Не могу поставить напоминание в прошлое.");
+                return;
             }
-        } else {
-            sendMessage(chatId, """
-                    Invalid message format!
-                    
-                    Use: dd.MM.yyyy HH:mm Reminder text
-                    Example: 01.01.2025 20:00 Do homework
-                    
-                    Or try: /joke - for a funny story
-                    """);
+
+            HelperTask task = new HelperTask(chatId, reminderText, reminderDateTime);
+            helperTaskRepository.save(task);
+
+            sendMessage(
+                    chatId,
+                    "Готово. Напомню %s:\n%s".formatted(dateTimeString, reminderText)
+            );
+        } catch (Exception exception) {
+            logger.error("Error creating reminder from message: {}", messageText, exception);
+            sendMessage(chatId, "Не разобрала дату. Формат: dd.MM.yyyy HH:mm Текст");
         }
     }
 
@@ -192,20 +210,49 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
     public void sendScheduledNotifications() {
         try {
             LocalDateTime currentDateTime = LocalDateTime.now().truncatedTo(ChronoUnit.MINUTES);
-            logger.info("Checking notifications for: {}", currentDateTime);
-
             List<HelperTask> tasks = helperTaskRepository.findAllByNotificationDateTime(currentDateTime);
 
             for (HelperTask task : tasks) {
-                String notificationMessage = String.format("Remind:\n%s", task.getMessageText());
-                SendMessage message = new SendMessage(task.getChatId(), notificationMessage);
-                if (executeMessage(message)) {
-                    logger.info("Notification sent to chat: {}", task.getChatId());
+                String notificationMessage = "Напоминаю 🐱\n" + task.getMessageText();
+                if (executeMessage(new SendMessage(task.getChatId(), notificationMessage))) {
+                    logger.info("Reminder sent to chat {}", task.getChatId());
                 }
             }
-        } catch (Exception e) {
-            logger.error("Error sending scheduled notifications", e);
+        } catch (Exception exception) {
+            logger.error("Error sending scheduled reminders", exception);
         }
+    }
+
+    private void sendLongMessage(Long chatId, String text) {
+        if (text == null || text.isBlank()) {
+            return;
+        }
+
+        String remaining = text.trim();
+
+        while (remaining.length() > TELEGRAM_SAFE_MESSAGE_LENGTH) {
+            int splitAt = findSplitPoint(remaining, TELEGRAM_SAFE_MESSAGE_LENGTH);
+            sendMessage(chatId, remaining.substring(0, splitAt).trim());
+            remaining = remaining.substring(splitAt).trim();
+        }
+
+        if (!remaining.isEmpty()) {
+            sendMessage(chatId, remaining);
+        }
+    }
+
+    private int findSplitPoint(String text, int preferredLimit) {
+        int newline = text.lastIndexOf('\n', preferredLimit);
+        if (newline > preferredLimit / 2) {
+            return newline + 1;
+        }
+
+        int space = text.lastIndexOf(' ', preferredLimit);
+        if (space > preferredLimit / 2) {
+            return space + 1;
+        }
+
+        return preferredLimit;
     }
 
     private void sendMessage(Long chatId, String text) {
@@ -215,9 +262,14 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
     private boolean executeMessage(SendMessage message) {
         try {
             SendResponse response = telegramBot.execute(message);
+
+            if (!response.isOk()) {
+                logger.warn("Telegram API rejected message: {}", response.description());
+            }
+
             return response.isOk();
-        } catch (Exception e) {
-            logger.error("Error sending message", e);
+        } catch (Exception exception) {
+            logger.error("Error sending Telegram message", exception);
             return false;
         }
     }
