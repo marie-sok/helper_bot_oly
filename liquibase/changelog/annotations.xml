@@ -1,8 +1,0 @@
-<root>
-    <item name='liquibase.changelog.ChangeLogIterator'>
-        <annotation name='java.lang.Deprecated'/>
-    </item>
-    <item name='liquibase.changelog.DatabaseChangeLog'>
-        <annotation name='java.lang.Deprecated'/>
-    </item>
-</root>
