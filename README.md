@@ -25,8 +25,15 @@ The default model is `gpt-5.6-terra`. Override it with `OPENAI_MODEL` if needed.
 ## 1. Clone
 
 ```bash
-git clone -b oly-ai-agent https://github.com/marie-sok/helper_bot_oly.git
+git clone https://github.com/marie-sok/helper_bot_oly.git
 cd helper_bot_oly
+```
+
+If you already have the repository locally:
+
+```bash
+git switch main
+git pull origin main
 ```
 
 ## 2. Create the PostgreSQL database
