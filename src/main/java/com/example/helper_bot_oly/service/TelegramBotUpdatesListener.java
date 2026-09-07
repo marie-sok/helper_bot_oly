@@ -68,8 +68,10 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
             return;
         }
 
-        telegramBot.setUpdatesListener(this);
-        logger.info("Oly Telegram listener started. AI enabled={}, model={}",
+        // Do not start getUpdates here. Production transport is HTTPS webhook.
+        // Starting long polling during Render rolling deploys causes competing consumers
+        // and can steal or indefinitely block Telegram updates.
+        logger.info("Oly Telegram update processor ready. Transport=webhook, AI enabled={}, model={}",
                 olyAiService.isAvailable(),
                 olyAiService.getModel());
     }
