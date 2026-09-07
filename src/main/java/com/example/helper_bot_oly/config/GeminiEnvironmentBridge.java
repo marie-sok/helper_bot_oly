@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Pattern;
 
-@Configuration
+@Configuration(proxyBeanMethods = false)
 public class GeminiEnvironmentBridge {
 
     private static final Logger logger = LoggerFactory.getLogger(GeminiEnvironmentBridge.class);
@@ -28,9 +28,6 @@ public class GeminiEnvironmentBridge {
 
     private static final Pattern GOOGLE_API_KEY_PATTERN =
             Pattern.compile("^AIza[0-9A-Za-z_-]{20,}$");
-
-    private GeminiEnvironmentBridge() {
-    }
 
     @Bean
     public static BeanFactoryPostProcessor geminiEnvironmentBridgePostProcessor() {
