@@ -3,3 +3,5 @@ databaseChangeLog:
       file: db/changelog/changes/001-create-notification-task-table.yaml
   - include:
       file: db/changelog/changes/002-create-oly-conversation-table.yaml
+  - include:
+      file: db/changelog/changes/003-create-oly-agent-tables.yaml
