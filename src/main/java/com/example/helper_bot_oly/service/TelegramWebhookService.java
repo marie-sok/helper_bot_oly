@@ -28,7 +28,7 @@ public class TelegramWebhookService {
 
     private final TelegramBot telegramBot;
     private final TelegramBotUpdatesListener updatesListener;
-    private final ExecutorService updateExecutor = Executors.newFixedThreadPool(2, runnable -> {
+    private final ExecutorService updateExecutor = Executors.newFixedThreadPool(3, runnable -> {
         Thread thread = new Thread(runnable, "oly-telegram-webhook-update");
         thread.setDaemon(true);
         return thread;
@@ -58,8 +58,6 @@ public class TelegramWebhookService {
         }
 
         try {
-            // Stop local long-polling first. This makes rolling deploys safe: Telegram
-            // sends every update to one stable HTTPS endpoint instead of competing getUpdates loops.
             telegramBot.removeGetUpdatesListener();
 
             String webhookUrl = normalizedPublicUrl() + "/telegram/webhook";
