@@ -39,6 +39,7 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
     private final HelperTaskRepository helperTaskRepository;
     private final OlyAiService olyAiService;
     private final OlyFallbackService olyFallbackService;
+    private final GruGithubWatchService gruGithubWatchService;
 
     @Value("${oly.timezone:Europe/Amsterdam}")
     private String timeZone;
@@ -50,12 +51,14 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
             TelegramBot telegramBot,
             HelperTaskRepository helperTaskRepository,
             OlyAiService olyAiService,
-            OlyFallbackService olyFallbackService
+            OlyFallbackService olyFallbackService,
+            GruGithubWatchService gruGithubWatchService
     ) {
         this.telegramBot = telegramBot;
         this.helperTaskRepository = helperTaskRepository;
         this.olyAiService = olyAiService;
         this.olyFallbackService = olyFallbackService;
+        this.gruGithubWatchService = gruGithubWatchService;
     }
 
     @PostConstruct
@@ -104,6 +107,8 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
             case "/reset" -> resetAiConversation(chatId);
             case "/ai" -> sendAiStatus(chatId);
             case "/joke" -> sendJoke(chatId);
+            case "/watchgru" -> sendMessage(chatId, gruGithubWatchService.subscribe(chatId));
+            case "/unwatchgru" -> sendMessage(chatId, gruGithubWatchService.unsubscribe(chatId));
             default -> processUserText(chatId, text);
         }
     }
@@ -143,18 +148,14 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
 
                 Просто пиши обычным языком. Я могу:
                 • поддерживать полноценный диалог и помнить контекст;
-                • искать свежую информацию в интернете;
                 • помогать с учебой, текстами, идеями и планированием;
-                • создавать напоминания из обычной фразы;
-                • показывать и удалять твои напоминания.
+                • создавать, показывать и удалять напоминания;
+                • хранить заметки, задачи и полезные факты;
+                • следить за GitHub-репозиторием GRU через GRU Guardian.
 
-                Даже если внешний AI временно недоступен, базовые напоминания и команды Oly продолжают работать.
-
-                Примеры:
-                «Напомни завтра в 18:00 позвонить маме»
-                «Какие у меня напоминания?»
-                «Удали напоминание #12»
-                «Что сегодня нового в AI?»
+                GRU Guardian:
+                /watchgru — получать сюда важные события GitHub из marie-sok/gru.
+                /unwatchgru — отключить эти уведомления
 
                 Команды:
                 /ai — статус AI
