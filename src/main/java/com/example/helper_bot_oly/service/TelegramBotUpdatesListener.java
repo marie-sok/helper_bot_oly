@@ -4,7 +4,11 @@ import com.example.helper_bot_oly.entity.HelperTask;
 import com.example.helper_bot_oly.repository.HelperTaskRepository;
 import com.pengrad.telegrambot.TelegramBot;
 import com.pengrad.telegrambot.UpdatesListener;
+import com.pengrad.telegrambot.model.Document;
+import com.pengrad.telegrambot.model.PhotoSize;
 import com.pengrad.telegrambot.model.Update;
+import com.pengrad.telegrambot.model.Video;
+import com.pengrad.telegrambot.model.VideoNote;
 import com.pengrad.telegrambot.request.SendMessage;
 import com.pengrad.telegrambot.request.SendPhoto;
 import com.pengrad.telegrambot.response.SendResponse;
@@ -19,6 +23,8 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -40,6 +46,7 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
     private final OlyAiService olyAiService;
     private final OlyFallbackService olyFallbackService;
     private final GruGithubWatchService gruGithubWatchService;
+    private final OlyMediaService olyMediaService;
 
     @Value("${oly.timezone:Europe/Amsterdam}")
     private String timeZone;
@@ -52,13 +59,15 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
             HelperTaskRepository helperTaskRepository,
             OlyAiService olyAiService,
             OlyFallbackService olyFallbackService,
-            GruGithubWatchService gruGithubWatchService
+            GruGithubWatchService gruGithubWatchService,
+            OlyMediaService olyMediaService
     ) {
         this.telegramBot = telegramBot;
         this.helperTaskRepository = helperTaskRepository;
         this.olyAiService = olyAiService;
         this.olyFallbackService = olyFallbackService;
         this.gruGithubWatchService = gruGithubWatchService;
+        this.olyMediaService = olyMediaService;
     }
 
     @PostConstruct
@@ -68,12 +77,13 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
             return;
         }
 
-        // Do not start getUpdates here. Production transport is HTTPS webhook.
-        // Starting long polling during Render rolling deploys causes competing consumers
-        // and can steal or indefinitely block Telegram updates.
-        logger.info("Oly Telegram update processor ready. Transport=webhook, AI enabled={}, model={}",
+        logger.info(
+                "Oly Telegram update processor ready. Transport=webhook, AI enabled={}, model={}, media={}, imageGeneration={}",
                 olyAiService.isAvailable(),
-                olyAiService.getModel());
+                olyAiService.getModel(),
+                olyMediaService.isMediaAvailable(),
+                olyMediaService.isImageGenerationAvailable()
+        );
     }
 
     @Override
@@ -94,10 +104,35 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
         }
 
         Long chatId = update.message().chat().id();
-        String messageText = update.message().text();
+        String caption = update.message().caption();
 
+        PhotoSize[] photos = update.message().photo();
+        if (photos != null && photos.length > 0) {
+            processPhoto(chatId, photos, caption);
+            return;
+        }
+
+        Video video = update.message().video();
+        if (video != null) {
+            processVideo(chatId, video.fileId(), video.fileSize(), video.mimeType(), caption);
+            return;
+        }
+
+        VideoNote videoNote = update.message().videoNote();
+        if (videoNote != null) {
+            processVideo(chatId, videoNote.fileId(), videoNote.fileSize(), "video/mp4", caption);
+            return;
+        }
+
+        Document document = update.message().document();
+        if (document != null && isSupportedMediaDocument(document)) {
+            processDocumentMedia(chatId, document, caption);
+            return;
+        }
+
+        String messageText = update.message().text();
         if (messageText == null || messageText.isBlank()) {
-            sendMessage(chatId, "Пока я работаю с текстовыми сообщениями. Напиши мне текстом 🐱");
+            sendMessage(chatId, "Я уже умею текст, фото и видео 🐱 Пришли медиа с подписью-вопросом или просто напиши сообщение.");
             return;
         }
 
@@ -109,10 +144,56 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
             case "/reset" -> resetAiConversation(chatId);
             case "/ai" -> sendAiStatus(chatId);
             case "/joke" -> sendJoke(chatId);
+            case "/image" -> generateImage(chatId, commandArguments(text));
             case "/watchgru" -> sendMessage(chatId, gruGithubWatchService.subscribe(chatId));
             case "/unwatchgru" -> sendMessage(chatId, gruGithubWatchService.unsubscribe(chatId));
             default -> processUserText(chatId, text);
         }
+    }
+
+    private void processPhoto(Long chatId, PhotoSize[] photos, String caption) {
+        PhotoSize best = Arrays.stream(photos)
+                .filter(photo -> photo != null && photo.fileId() != null)
+                .max(Comparator.comparingLong(this::photoScore))
+                .orElse(null);
+
+        if (best == null) {
+            sendMessage(chatId, "Не смогла получить фото из Telegram 😿");
+            return;
+        }
+
+        sendLongMessage(chatId, olyMediaService.analyzeTelegramMedia(
+                chatId,
+                best.fileId(),
+                best.fileSize(),
+                "image/jpeg",
+                OlyMediaService.MediaKind.IMAGE,
+                caption
+        ));
+    }
+
+    private void processVideo(Long chatId, String fileId, Long fileSize, String mimeType, String caption) {
+        sendLongMessage(chatId, olyMediaService.analyzeTelegramMedia(
+                chatId,
+                fileId,
+                fileSize,
+                mimeType == null || mimeType.isBlank() ? "video/mp4" : mimeType,
+                OlyMediaService.MediaKind.VIDEO,
+                caption
+        ));
+    }
+
+    private void processDocumentMedia(Long chatId, Document document, String caption) {
+        String mimeType = document.mimeType();
+        boolean video = isVideoMime(mimeType) || hasVideoExtension(document.fileName());
+        sendLongMessage(chatId, olyMediaService.analyzeTelegramMedia(
+                chatId,
+                document.fileId(),
+                document.fileSize(),
+                mimeType,
+                video ? OlyMediaService.MediaKind.VIDEO : OlyMediaService.MediaKind.IMAGE,
+                caption
+        ));
     }
 
     private void processUserText(Long chatId, String text) {
@@ -128,10 +209,36 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
             return;
         }
 
+        if (isNaturalImageGenerationRequest(text)) {
+            generateImage(chatId, text);
+            return;
+        }
+
         String response = olyAiService.isAvailable()
-                ? olyAiService.reply(chatId, text)
+                ? olyAiService.reply(chatId, withOlyStyle(text))
                 : olyFallbackService.reply(chatId, text);
         sendLongMessage(chatId, response);
+    }
+
+    private void generateImage(Long chatId, String prompt) {
+        OlyMediaService.ImageGenerationResult result = olyMediaService.generateImage(chatId, prompt);
+        if (!result.ok()) {
+            sendMessage(chatId, result.message());
+            return;
+        }
+
+        try {
+            SendResponse response = telegramBot.execute(
+                    new SendPhoto(chatId, result.bytes()).caption("Готово 🐱")
+            );
+            if (!response.isOk()) {
+                logger.warn("Telegram generated photo send failed: {}", response.description());
+                sendMessage(chatId, "Картинку сгенерировала, но Telegram не дал её отправить 😿");
+            }
+        } catch (Exception e) {
+            logger.error("Error sending generated Oly image", e);
+            sendMessage(chatId, "Картинку сгенерировала, но не смогла отправить её в Telegram 😿");
+        }
     }
 
     private void resetAiConversation(Long chatId) {
@@ -141,7 +248,12 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
 
     private void sendAiStatus(Long chatId) {
         String status = olyAiService.isAvailable() ? "online" : "offline fallback";
-        sendMessage(chatId, "Oly AI: " + status + "\nModel: " + olyAiService.getModel());
+        sendMessage(chatId,
+                "Oly AI: " + status +
+                        "\nModel: " + olyAiService.getModel() +
+                        "\nPhoto/video: " + (olyMediaService.isMediaAvailable() ? "online" : "offline") +
+                        "\nImage generation: " + (olyMediaService.isImageGenerationAvailable() ? "online" : "offline")
+        );
     }
 
     private void sendWelcomeMessage(Long chatId) {
@@ -150,17 +262,30 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
 
                 Просто пиши обычным языком. Я могу:
                 • поддерживать полноценный диалог и помнить контекст;
+                • смотреть и обсуждать фото;
+                • смотреть видео и видеокружки до лимита Telegram Bot API;
+                • понимать image/video-файлы, отправленные документом;
+                • генерировать изображения по текстовому описанию;
                 • помогать с учебой, текстами, идеями и планированием;
                 • создавать, показывать и удалять напоминания;
                 • хранить заметки, задачи и полезные факты;
                 • следить за GitHub-репозиторием GRU через GRU Guardian.
+
+                Для фото/видео:
+                просто отправь файл. Подпись к нему считается твоим вопросом.
+                После разбора можно продолжить обсуждение обычным текстом.
+
+                Генерация пикч:
+                /image минималистичный котодракон в неоне
+                Или обычным языком: «нарисуй…», «сгенерируй картинку…»
 
                 GRU Guardian:
                 /watchgru — получать сюда важные события GitHub из marie-sok/gru.
                 /unwatchgru — отключить эти уведомления
 
                 Команды:
-                /ai — статус AI
+                /ai — статус AI и мультимедиа
+                /image — сгенерировать изображение
                 /reset — забыть текущий контекст диалога
                 /joke — рассказать шутку
                 /help — эта справка
@@ -175,7 +300,7 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
         if (olyAiService.isAvailable()) {
             sendLongMessage(chatId, olyAiService.reply(
                     chatId,
-                    "Расскажи одну короткую смешную шутку. Без длинного вступления."
+                    withOlyStyle("Расскажи одну короткую смешную шутку. Без длинного вступления.")
             ));
         } else {
             sendMessage(chatId, "Купил мужик шляпу — а она ему как раз! 😼");
@@ -267,6 +392,76 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
             firstToken = firstToken.substring(0, botSuffix);
         }
         return firstToken.toLowerCase(Locale.ROOT);
+    }
+
+    private String commandArguments(String text) {
+        if (text == null) return "";
+        int space = text.indexOf(' ');
+        return space < 0 ? "" : text.substring(space + 1).trim();
+    }
+
+    private boolean isNaturalImageGenerationRequest(String text) {
+        String lower = text.toLowerCase(Locale.ROOT).trim();
+        return lower.startsWith("нарисуй ")
+                || lower.startsWith("нарисуй мне ")
+                || lower.contains("сгенерируй картинку")
+                || lower.contains("сгенерируй изображение")
+                || lower.contains("создай картинку")
+                || lower.contains("создай изображение")
+                || lower.contains("сделай картинку")
+                || lower.startsWith("generate image")
+                || lower.startsWith("generate an image");
+    }
+
+    private String withOlyStyle(String text) {
+        return """
+                Style preference for Oly in this conversation:
+                Speak naturally and like a real Telegram companion, not a corporate compliance bot.
+                Slang, sarcasm, playful teasing and profanity are allowed when they fit the user's tone.
+                Do not moralize, scold, act prudish, or add preachy disclaimers to harmless or merely edgy requests.
+                Keep necessary safety boundaries for genuinely dangerous, exploitative or illegal requests, but make any boundary concise and non-preachy.
+
+                User message:
+                %s
+                """.formatted(text);
+    }
+
+    private long photoScore(PhotoSize photo) {
+        if (photo.fileSize() != null) return photo.fileSize();
+        long width = photo.width() == null ? 0L : photo.width();
+        long height = photo.height() == null ? 0L : photo.height();
+        return width * height;
+    }
+
+    private boolean isSupportedMediaDocument(Document document) {
+        String mime = document.mimeType();
+        String fileName = document.fileName();
+        return isImageMime(mime)
+                || isVideoMime(mime)
+                || hasImageExtension(fileName)
+                || hasVideoExtension(fileName);
+    }
+
+    private boolean isImageMime(String mime) {
+        return mime != null && mime.toLowerCase(Locale.ROOT).startsWith("image/");
+    }
+
+    private boolean isVideoMime(String mime) {
+        return mime != null && mime.toLowerCase(Locale.ROOT).startsWith("video/");
+    }
+
+    private boolean hasImageExtension(String fileName) {
+        if (fileName == null) return false;
+        String lower = fileName.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".jpg") || lower.endsWith(".jpeg") || lower.endsWith(".png")
+                || lower.endsWith(".webp") || lower.endsWith(".gif");
+    }
+
+    private boolean hasVideoExtension(String fileName) {
+        if (fileName == null) return false;
+        String lower = fileName.toLowerCase(Locale.ROOT);
+        return lower.endsWith(".mp4") || lower.endsWith(".mov") || lower.endsWith(".webm")
+                || lower.endsWith(".m4v");
     }
 
     private LocalDateTime now() {
