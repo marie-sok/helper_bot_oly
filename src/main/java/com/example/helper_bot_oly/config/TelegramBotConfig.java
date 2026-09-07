@@ -8,14 +8,16 @@ import org.springframework.context.annotation.Configuration;
 @Configuration
 public class TelegramBotConfig {
 
-    @Value("${telegram.bot.token}")
+    @Value("${telegram.bot.token:}")
     private String token;
 
     @Bean
     public TelegramBot telegramBot() {
-        if (token == null || token.isBlank()) {
-            throw new IllegalStateException("TELEGRAM_BOT_TOKEN is required to start Oly");
+        String normalized = token == null ? "" : token.trim();
+        if (normalized.isBlank()) {
+            // Bootstrap-only client. The listener will not start polling until a real token is configured.
+            return new TelegramBot("0:oly-bootstrap-disabled");
         }
-        return new TelegramBot(token.trim());
+        return new TelegramBot(normalized);
     }
 }
