@@ -1,0 +1,111 @@
+databaseChangeLog:
+  - changeSet:
+      id: 003-create-oly-chat-message-table
+      author: oly
+      changes:
+        - createTable:
+            tableName: oly_chat_message
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: chat_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: role
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: content
+                  type: TEXT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+        - createIndex:
+            tableName: oly_chat_message
+            indexName: idx_oly_chat_message_chat_id_id
+            columns:
+              - column:
+                  name: chat_id
+              - column:
+                  name: id
+
+  - changeSet:
+      id: 003-create-oly-knowledge-item-table
+      author: oly
+      changes:
+        - createTable:
+            tableName: oly_knowledge_item
+            columns:
+              - column:
+                  name: id
+                  type: BIGINT
+                  autoIncrement: true
+                  constraints:
+                    primaryKey: true
+                    nullable: false
+              - column:
+                  name: chat_id
+                  type: BIGINT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: kind
+                  type: VARCHAR(32)
+                  constraints:
+                    nullable: false
+              - column:
+                  name: key_name
+                  type: VARCHAR(255)
+              - column:
+                  name: title
+                  type: VARCHAR(500)
+              - column:
+                  name: content
+                  type: TEXT
+                  constraints:
+                    nullable: false
+              - column:
+                  name: completed
+                  type: BOOLEAN
+                  defaultValueBoolean: false
+                  constraints:
+                    nullable: false
+              - column:
+                  name: created_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+              - column:
+                  name: updated_at
+                  type: TIMESTAMP
+                  constraints:
+                    nullable: false
+        - createIndex:
+            tableName: oly_knowledge_item
+            indexName: idx_oly_knowledge_chat_kind
+            columns:
+              - column:
+                  name: chat_id
+              - column:
+                  name: kind
+        - createIndex:
+            tableName: oly_knowledge_item
+            indexName: idx_oly_knowledge_chat_key
+            columns:
+              - column:
+                  name: chat_id
+              - column:
+                  name: key_name
