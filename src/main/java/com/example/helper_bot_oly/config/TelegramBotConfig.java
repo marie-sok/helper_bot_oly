@@ -13,6 +13,9 @@ public class TelegramBotConfig {
 
     @Bean
     public TelegramBot telegramBot() {
-        return new TelegramBot(token);
+        if (token == null || token.isBlank()) {
+            throw new IllegalStateException("TELEGRAM_BOT_TOKEN is required to start Oly");
+        }
+        return new TelegramBot(token.trim());
     }
 }
