@@ -12,14 +12,13 @@ import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import java.io.File;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Locale;
 import java.util.regex.Matcher;
@@ -167,8 +166,17 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
 
     private void sendWhoIsMisbehaving(Long chatId) {
         try {
-            File imageFile = new File("src/main/resources/static/who_misbehaving.jpg");
-            telegramBot.execute(new SendPhoto(chatId, imageFile));
+            ClassPathResource resource = new ClassPathResource("static/who_misbehaving.jpg");
+            byte[] imageBytes;
+            try (var inputStream = resource.getInputStream()) {
+                imageBytes = inputStream.readAllBytes();
+            }
+
+            SendResponse response = telegramBot.execute(new SendPhoto(chatId, imageBytes));
+            if (!response.isOk()) {
+                logger.warn("Telegram photo send failed: {}", response.description());
+                sendMessage(chatId, "Не смогла отправить картинку 😿");
+            }
         } catch (Exception e) {
             logger.error("Error sending Oly picture", e);
             sendMessage(chatId, "Не смогла найти картинку 😿");
@@ -208,10 +216,11 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
 
     @Scheduled(cron = "0 * * * * *")
     public void sendScheduledNotifications() {
-        LocalDateTime currentDateTime = now().truncatedTo(ChronoUnit.MINUTES);
+        LocalDateTime dueAt = now();
 
         try {
-            List<HelperTask> tasks = helperTaskRepository.findAllByNotificationDateTime(currentDateTime);
+            List<HelperTask> tasks = helperTaskRepository
+                    .findAllByNotificationDateTimeLessThanEqualOrderByNotificationDateTimeAsc(dueAt);
 
             for (HelperTask task : tasks) {
                 String notificationMessage = "⏰ Oly напоминает:\n" + task.getMessageText();
