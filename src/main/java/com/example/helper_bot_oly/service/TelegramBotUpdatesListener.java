@@ -38,6 +38,7 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
     private final TelegramBot telegramBot;
     private final HelperTaskRepository helperTaskRepository;
     private final OlyAiService olyAiService;
+    private final OlyFallbackService olyFallbackService;
 
     @Value("${oly.timezone:Europe/Amsterdam}")
     private String timeZone;
@@ -48,11 +49,13 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
     public TelegramBotUpdatesListener(
             TelegramBot telegramBot,
             HelperTaskRepository helperTaskRepository,
-            OlyAiService olyAiService
+            OlyAiService olyAiService,
+            OlyFallbackService olyFallbackService
     ) {
         this.telegramBot = telegramBot;
         this.helperTaskRepository = helperTaskRepository;
         this.olyAiService = olyAiService;
+        this.olyFallbackService = olyFallbackService;
     }
 
     @PostConstruct
@@ -118,7 +121,9 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
             return;
         }
 
-        String response = olyAiService.reply(chatId, text);
+        String response = olyAiService.isAvailable()
+                ? olyAiService.reply(chatId, text)
+                : olyFallbackService.reply(chatId, text);
         sendLongMessage(chatId, response);
     }
 
@@ -128,7 +133,7 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
     }
 
     private void sendAiStatus(Long chatId) {
-        String status = olyAiService.isAvailable() ? "online" : "not configured";
+        String status = olyAiService.isAvailable() ? "online" : "offline fallback";
         sendMessage(chatId, "Oly AI: " + status + "\nModel: " + olyAiService.getModel());
     }
 
@@ -143,10 +148,12 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
                 • создавать напоминания из обычной фразы;
                 • показывать и удалять твои напоминания.
 
+                Даже если внешний AI временно недоступен, базовые напоминания и команды Oly продолжают работать.
+
                 Примеры:
                 «Напомни завтра в 18:00 позвонить маме»
                 «Какие у меня напоминания?»
-                «Удали напоминание про звонок»
+                «Удали напоминание #12»
                 «Что сегодня нового в AI?»
 
                 Команды:
