@@ -12,4 +12,5 @@ public interface OlyKnowledgeItemRepository extends JpaRepository<OlyKnowledgeIt
     List<OlyKnowledgeItem> findAllByChatIdAndKindAndCompletedOrderByCreatedAtAsc(Long chatId, String kind, boolean completed);
     Optional<OlyKnowledgeItem> findFirstByChatIdAndKindAndKeyNameIgnoreCase(Long chatId, String kind, String keyName);
     Optional<OlyKnowledgeItem> findByIdAndChatId(Long id, Long chatId);
+    List<OlyKnowledgeItem> findAllByKindAndKeyNameIgnoreCaseAndCompletedFalse(String kind, String keyName);
 }
