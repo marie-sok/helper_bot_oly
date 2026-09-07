@@ -2,6 +2,7 @@ package com.example.helper_bot_oly.controller;
 
 import com.example.helper_bot_oly.service.GruGithubWatchService;
 import com.example.helper_bot_oly.service.OlyAiService;
+import com.example.helper_bot_oly.service.TelegramWebhookService;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,10 +20,16 @@ public class HealthController {
 
     private final OlyAiService olyAiService;
     private final GruGithubWatchService gruGithubWatchService;
+    private final TelegramWebhookService telegramWebhookService;
 
-    public HealthController(OlyAiService olyAiService, GruGithubWatchService gruGithubWatchService) {
+    public HealthController(
+            OlyAiService olyAiService,
+            GruGithubWatchService gruGithubWatchService,
+            TelegramWebhookService telegramWebhookService
+    ) {
         this.olyAiService = olyAiService;
         this.gruGithubWatchService = gruGithubWatchService;
+        this.telegramWebhookService = telegramWebhookService;
     }
 
     @GetMapping({"/", "/health"})
@@ -33,12 +40,15 @@ public class HealthController {
         status.put("aiAvailable", olyAiService.isAvailable());
         status.put("model", olyAiService.getModel());
         status.put("githubWebhookConfigured", gruGithubWatchService.isWebhookConfigured());
+        status.put("telegramTransport", "webhook");
+        status.put("telegramWebhookConfigured", telegramWebhookService.isConfigured());
+        status.put("telegramWebhookRegistered", telegramWebhookService.isRegistered());
         status.put("timestamp", Instant.now().toString());
         return status;
     }
 
     @GetMapping("/github/webhook")
-    public Map<String, Object> webhookStatus() {
+    public Map<String, Object> githubWebhookStatus() {
         return Map.of(
                 "ok", true,
                 "endpoint", "/github/webhook",
@@ -79,5 +89,39 @@ public class HealthController {
             return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                     .body(Map.of("ok", false, "error", "Unable to process webhook payload"));
         }
+    }
+
+    @GetMapping("/telegram/webhook")
+    public Map<String, Object> telegramWebhookStatus() {
+        return Map.of(
+                "ok", true,
+                "endpoint", "/telegram/webhook",
+                "configured", telegramWebhookService.isConfigured(),
+                "registered", telegramWebhookService.isRegistered(),
+                "method", "POST"
+        );
+    }
+
+    @PostMapping("/telegram/webhook")
+    public ResponseEntity<Map<String, Object>> receiveTelegramWebhook(
+            @RequestHeader(value = "X-Telegram-Bot-Api-Secret-Token", required = false) String secretToken,
+            @RequestBody String body
+    ) {
+        if (!telegramWebhookService.isConfigured()) {
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                    .body(Map.of("ok", false, "error", "Telegram is not configured"));
+        }
+
+        if (!telegramWebhookService.verifySecret(secretToken)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
+                    .body(Map.of("ok", false, "error", "Invalid Telegram webhook secret"));
+        }
+
+        if (!telegramWebhookService.accept(body)) {
+            return ResponseEntity.status(HttpStatus.BAD_REQUEST)
+                    .body(Map.of("ok", false, "error", "Invalid Telegram update payload"));
+        }
+
+        return ResponseEntity.ok(Map.of("ok", true));
     }
 }
