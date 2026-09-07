@@ -42,6 +42,9 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
     @Value("${oly.timezone:Europe/Amsterdam}")
     private String timeZone;
 
+    @Value("${telegram.bot.token:}")
+    private String telegramToken;
+
     public TelegramBotUpdatesListener(
             TelegramBot telegramBot,
             HelperTaskRepository helperTaskRepository,
@@ -54,6 +57,11 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
 
     @PostConstruct
     public void init() {
+        if (!isTelegramConfigured()) {
+            logger.warn("Oly started in bootstrap mode: TELEGRAM_BOT_TOKEN is not configured yet. HTTP health endpoint remains available.");
+            return;
+        }
+
         telegramBot.setUpdatesListener(this);
         logger.info("Oly Telegram listener started. AI enabled={}, model={}",
                 olyAiService.isAvailable(),
@@ -216,6 +224,10 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
 
     @Scheduled(cron = "0 * * * * *")
     public void sendScheduledNotifications() {
+        if (!isTelegramConfigured()) {
+            return;
+        }
+
         LocalDateTime dueAt = now();
 
         try {
@@ -260,6 +272,10 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
         }
     }
 
+    private boolean isTelegramConfigured() {
+        return telegramToken != null && !telegramToken.isBlank();
+    }
+
     private void sendLongMessage(Long chatId, String text) {
         if (text == null || text.isBlank()) {
             return;
@@ -291,6 +307,11 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
     }
 
     private boolean executeMessage(SendMessage message) {
+        if (!isTelegramConfigured()) {
+            logger.debug("Telegram send skipped because TELEGRAM_BOT_TOKEN is not configured.");
+            return false;
+        }
+
         try {
             SendResponse response = telegramBot.execute(message);
             if (!response.isOk()) {
