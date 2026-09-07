@@ -25,3 +25,25 @@ jobs:
 
       - name: Build
         run: ./mvnw -B -DskipTests package
+
+      - name: Bootstrap smoke test
+        shell: bash
+        run: |
+          java -jar target/reminder-telegram-bot-1.0.0.jar > /tmp/oly.log 2>&1 &
+          PID=$!
+          trap 'kill $PID || true' EXIT
+
+          for i in {1..30}; do
+            if curl -fsS http://127.0.0.1:8082/health | grep -q 'ok'; then
+              echo 'Oly bootstrap health check passed'
+              exit 0
+            fi
+            if ! kill -0 $PID 2>/dev/null; then
+              cat /tmp/oly.log
+              exit 1
+            fi
+            sleep 2
+          done
+
+          cat /tmp/oly.log
+          exit 1
