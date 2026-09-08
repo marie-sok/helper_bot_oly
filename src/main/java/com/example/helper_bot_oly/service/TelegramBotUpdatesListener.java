@@ -177,7 +177,7 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
         sendLongMessage(chatId, olyMediaService.analyzeTelegramMedia(
                 chatId,
                 fileId,
-                fileSize(),
+                fileSize,
                 mimeType == null || mimeType.isBlank() ? "video/mp4" : mimeType,
                 OlyMediaService.MediaKind.VIDEO,
                 caption
