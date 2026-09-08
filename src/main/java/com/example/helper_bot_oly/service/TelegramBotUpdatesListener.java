@@ -140,7 +140,8 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
         String command = extractCommand(text);
 
         switch (command) {
-            case "/start", "/help" -> sendWelcomeMessage(chatId);
+            case "/start" -> sendWelcomeMessage(chatId);
+            case "/help" -> sendHelpMessage(chatId);
             case "/reset" -> resetAiConversation(chatId);
             case "/ai" -> sendAiStatus(chatId);
             case "/joke" -> sendJoke(chatId);
@@ -176,7 +177,7 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
         sendLongMessage(chatId, olyMediaService.analyzeTelegramMedia(
                 chatId,
                 fileId,
-                fileSize,
+                fileSize(),
                 mimeType == null || mimeType.isBlank() ? "video/mp4" : mimeType,
                 OlyMediaService.MediaKind.VIDEO,
                 caption
@@ -257,43 +258,31 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
     }
 
     private void sendWelcomeMessage(Long chatId) {
-        String welcomeText = """
-                Oly 🐱 — твой AI-агент в Telegram.
+        sendMessage(chatId, "Привет, чем могу помочь тебе сегодня? Спланируем день или просто поболтаем ?");
+    }
 
-                Просто пиши обычным языком. Я могу:
-                • поддерживать полноценный диалог и помнить контекст;
-                • смотреть и обсуждать фото;
-                • смотреть видео и видеокружки до лимита Telegram Bot API;
-                • понимать image/video-файлы, отправленные документом;
-                • генерировать изображения по текстовому описанию;
-                • помогать с учебой, текстами, идеями и планированием;
-                • создавать, показывать и удалять напоминания;
+    private void sendHelpMessage(Long chatId) {
+        String helpText = """
+                Я Oly 🐱
+
+                Можно просто писать мне обычным языком. Я умею:
+                • поддерживать диалог и помнить контекст;
+                • помогать с планированием дня, задачами и идеями;
+                • создавать и вести напоминания;
                 • хранить заметки, задачи и полезные факты;
-                • следить за GitHub-репозиторием GRU через GRU Guardian.
-
-                Для фото/видео:
-                просто отправь файл. Подпись к нему считается твоим вопросом.
-                После разбора можно продолжить обсуждение обычным текстом.
-
-                Генерация пикч:
-                /image минималистичный котодракон в неоне
-                Или обычным языком: «нарисуй…», «сгенерируй картинку…»
-
-                GRU Guardian:
-                /watchgru — получать сюда важные события GitHub из marie-sok/gru.
-                /unwatchgru — отключить эти уведомления
+                • работать с фото и видео;
+                • помогать с текстами, учебой, переводами и объяснениями;
+                • генерировать изображения по описанию;
+                • считать, смотреть погоду, время и курсы валют.
 
                 Команды:
                 /ai — статус AI и мультимедиа
                 /image — сгенерировать изображение
-                /reset — забыть текущий контекст диалога
+                /reset — очистить текущий контекст диалога
                 /joke — рассказать шутку
                 /help — эта справка
-
-                Старый формат напоминаний тоже работает:
-                dd.MM.yyyy HH:mm текст
                 """;
-        sendLongMessage(chatId, welcomeText);
+        sendLongMessage(chatId, helpText);
     }
 
     private void sendJoke(Long chatId) {
@@ -373,7 +362,7 @@ public class TelegramBotUpdatesListener implements UpdatesListener {
                 String notificationMessage = "⏰ Oly напоминает:\n" + task.getMessageText();
                 if (executeMessage(new SendMessage(task.getChatId(), notificationMessage))) {
                     helperTaskRepository.delete(task);
-                    logger.info("Reminder {} sent to chat {}", task.getId(), task.getChatId());
+                    logger.info("Reminder {} sent", task.getId());
                 }
             }
         } catch (Exception e) {
