@@ -8,8 +8,10 @@ import com.pengrad.telegrambot.response.BaseResponse;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
@@ -21,13 +23,14 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 @Service
+@Lazy(false)
 public class TelegramWebhookService {
 
     private static final Logger logger = LoggerFactory.getLogger(TelegramWebhookService.class);
     private static final String DEFAULT_PUBLIC_URL = "https://oly-szm9.onrender.com";
 
     private final TelegramBot telegramBot;
-    private final TelegramBotUpdatesListener updatesListener;
+    private final ObjectProvider<TelegramBotUpdatesListener> updatesListenerProvider;
     private final ExecutorService updateExecutor = Executors.newFixedThreadPool(3, runnable -> {
         Thread thread = new Thread(runnable, "oly-telegram-webhook-update");
         thread.setDaemon(true);
@@ -44,10 +47,10 @@ public class TelegramWebhookService {
 
     public TelegramWebhookService(
             TelegramBot telegramBot,
-            TelegramBotUpdatesListener updatesListener
+            ObjectProvider<TelegramBotUpdatesListener> updatesListenerProvider
     ) {
         this.telegramBot = telegramBot;
-        this.updatesListener = updatesListener;
+        this.updatesListenerProvider = updatesListenerProvider;
     }
 
     @EventListener(ApplicationReadyEvent.class)
@@ -116,8 +119,11 @@ public class TelegramWebhookService {
                     : null;
             logger.info("Telegram webhook accepted: updateId={}, chatId={}", update.updateId(), chatId);
 
+            // Acknowledge the webhook immediately. Heavy JPA/AI services are resolved inside
+            // the worker thread so Render cold starts do not hold Telegram's HTTP request open.
             updateExecutor.submit(() -> {
                 try {
+                    TelegramBotUpdatesListener updatesListener = updatesListenerProvider.getObject();
                     updatesListener.process(List.of(update));
                 } catch (Exception e) {
                     logger.error("Telegram webhook update processing failed: updateId={}", update.updateId(), e);
