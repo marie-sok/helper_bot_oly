@@ -20,5 +20,7 @@ public interface HelperTaskRepository extends JpaRepository<HelperTask, Long> {
             LocalDateTime notificationDateTime
     );
 
+    List<HelperTask> findAllByChatIdOrderByNotificationDateTimeAsc(Long chatId);
+
     Optional<HelperTask> findByIdAndChatId(Long id, Long chatId);
 }
