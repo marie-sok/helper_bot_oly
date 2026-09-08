@@ -34,6 +34,9 @@ public class GruGithubWatchService {
     @Value("${oly.github.webhook-secret:${GITHUB_WEBHOOK_SECRET:}}")
     private String webhookSecret;
 
+    @Value("${oly.owner-chat-id:${OLY_OWNER_CHAT_ID:}}")
+    private String ownerChatId;
+
     public GruGithubWatchService(
             ObjectMapper objectMapper,
             OlyKnowledgeItemRepository knowledgeRepository,
@@ -46,6 +49,15 @@ public class GruGithubWatchService {
 
     public boolean isWebhookConfigured() {
         return webhookSecret != null && !webhookSecret.isBlank();
+    }
+
+    public boolean isOwnerConfigured() {
+        return parseOwnerChatId() != null;
+    }
+
+    public boolean isOwnerChat(Long chatId) {
+        Long owner = parseOwnerChatId();
+        return owner != null && chatId != null && owner.equals(chatId);
     }
 
     public boolean verifySignature(byte[] body, String signatureHeader) {
@@ -68,6 +80,11 @@ public class GruGithubWatchService {
     }
 
     public String subscribe(Long chatId) {
+        if (!isOwnerChat(chatId)) {
+            logger.warn("Rejected GRU Guardian subscription from non-owner chat");
+            return "Команда недоступна.";
+        }
+
         OlyKnowledgeItem item = knowledgeRepository
                 .findFirstByChatIdAndKindAndKeyNameIgnoreCase(chatId, WATCH_KIND, GRU_REPOSITORY)
                 .orElseGet(() -> new OlyKnowledgeItem(
@@ -80,18 +97,23 @@ public class GruGithubWatchService {
         item.setCompleted(false);
         item.setContent("Watch GitHub events for " + GRU_REPOSITORY);
         knowledgeRepository.save(item);
-        return "✅ GRU Guardian включён. Я буду присылать сюда важные GitHub-события из " + GRU_REPOSITORY + ".";
+        return "✅ GRU Guardian включён.";
     }
 
     public String unsubscribe(Long chatId) {
+        if (!isOwnerChat(chatId)) {
+            logger.warn("Rejected GRU Guardian unsubscribe from non-owner chat");
+            return "Команда недоступна.";
+        }
+
         return knowledgeRepository
                 .findFirstByChatIdAndKindAndKeyNameIgnoreCase(chatId, WATCH_KIND, GRU_REPOSITORY)
                 .map(item -> {
                     item.setCompleted(true);
                     knowledgeRepository.save(item);
-                    return "GRU Guardian выключен для этого чата.";
+                    return "GRU Guardian выключен.";
                 })
-                .orElse("GRU Guardian в этом чате и так не был включён.");
+                .orElse("GRU Guardian уже выключен.");
     }
 
     public int handleEvent(String eventName, String deliveryId, byte[] body) throws Exception {
@@ -108,6 +130,11 @@ public class GruGithubWatchService {
             return 0;
         }
 
+        if (!isOwnerConfigured()) {
+            logger.warn("GRU Guardian event ignored because OLY_OWNER_CHAT_ID is not configured");
+            return 0;
+        }
+
         String alert = buildAlert(eventName, payload);
         if (alert == null || alert.isBlank()) {
             logger.info("GitHub event ignored by GRU Guardian: event={}, delivery={}", eventName, deliveryId);
@@ -115,7 +142,10 @@ public class GruGithubWatchService {
         }
 
         List<OlyKnowledgeItem> watchers = knowledgeRepository
-                .findAllByKindAndKeyNameIgnoreCaseAndCompletedFalse(WATCH_KIND, GRU_REPOSITORY);
+                .findAllByKindAndKeyNameIgnoreCaseAndCompletedFalse(WATCH_KIND, GRU_REPOSITORY)
+                .stream()
+                .filter(item -> isOwnerChat(item.getChatId()))
+                .toList();
 
         int sent = 0;
         for (OlyKnowledgeItem watcher : watchers) {
@@ -124,7 +154,7 @@ public class GruGithubWatchService {
             }
         }
 
-        logger.info("GRU Guardian processed GitHub event: event={}, delivery={}, watchers={}, sent={}",
+        logger.info("GRU Guardian processed GitHub event: event={}, delivery={}, authorizedWatchers={}, sent={}",
                 eventName, deliveryId, watchers.size(), sent);
         return sent;
     }
@@ -213,12 +243,24 @@ public class GruGithubWatchService {
         try {
             SendResponse response = telegramBot.execute(new SendMessage(chatId, text));
             if (!response.isOk()) {
-                logger.warn("GRU Guardian Telegram send failed for chat {}: {}", chatId, response.description());
+                logger.warn("GRU Guardian Telegram send failed: {}", response.description());
             }
             return response.isOk();
         } catch (Exception e) {
-            logger.error("GRU Guardian Telegram send failed for chat {}", chatId, e);
+            logger.error("GRU Guardian Telegram send failed", e);
             return false;
+        }
+    }
+
+    private Long parseOwnerChatId() {
+        if (ownerChatId == null || ownerChatId.isBlank()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(ownerChatId.trim());
+        } catch (NumberFormatException e) {
+            logger.error("OLY_OWNER_CHAT_ID is invalid");
+            return null;
         }
     }
 
